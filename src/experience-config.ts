@@ -2,7 +2,7 @@ import { categories as defaultCategories } from './data';
 import type { Category, CategoryKey, GiftOption } from './types';
 
 export const EXPERIENCE_CONFIG_STORAGE_KEY = 'birthday-experience-config-v3';
-export const DEFAULT_INTRO_VIDEO_PATH = '/video/birthday-intro.mov';
+export const DEFAULT_INTRO_VIDEO_PATH = '/video/birthday-intro.webm';
 export const DEFAULT_INTRO_POSTER_PATH = '/images/birthday-bg.jpg';
 export const DEFAULT_CATEGORY_IMAGE_PATHS: Record<CategoryKey, string> = {
   likeDontNeed: '/images/categories/lbdn.jpg',
@@ -57,6 +57,7 @@ export function createDefaultExperienceConfig(): ExperienceConfig {
 
 export function loadExperienceConfig(): ExperienceConfig {
   const fallback = createDefaultExperienceConfig();
+  const legacyIntroPaths = new Set(['/video/birthday-intro.mp4', '/video/birthday-intro.mov']);
 
   try {
     const rawConfig = window.localStorage.getItem(EXPERIENCE_CONFIG_STORAGE_KEY);
@@ -71,7 +72,7 @@ export function loadExperienceConfig(): ExperienceConfig {
 
     return {
       introVideoPath:
-        parsed.introVideoPath && parsed.introVideoPath !== '/video/birthday-intro.mp4'
+        parsed.introVideoPath && !legacyIntroPaths.has(parsed.introVideoPath)
           ? parsed.introVideoPath
           : fallback.introVideoPath,
       introPosterPath: parsed.introPosterPath || fallback.introPosterPath,

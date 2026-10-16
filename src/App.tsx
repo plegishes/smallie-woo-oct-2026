@@ -566,10 +566,6 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
   }
 
   async function handleIntroCanPlay() {
-    if (!isIntroBuffering) {
-      return;
-    }
-
     setIsIntroBuffering(false);
 
     if (!introVideoRef.current || introWasPausedByUserRef.current || !shouldResumeIntroAfterBufferRef.current) {
@@ -589,7 +585,7 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
   }
 
   function handleIntroSurfaceTap() {
-    if (!isIntroPlaying) {
+    if (!isIntroPlaying && !isIntroBuffering) {
       return;
     }
 
@@ -644,6 +640,9 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
                   setShowIntroControls(false);
                   shouldResumeIntroAfterBufferRef.current = false;
                 }}
+                onLoadedData={() => {
+                  setIsIntroBuffering(false);
+                }}
                 onPause={() => {
                   setIsIntroPlaying(false);
                   setShowIntroControls(true);
@@ -674,7 +673,7 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
                   }
                 }}
               />
-              {(!isIntroPlaying || isIntroBuffering || showIntroControls) ? (
+              {showIntroControls ? (
                 <button
                   type="button"
                   className="intro-video-play"
