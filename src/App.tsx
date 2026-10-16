@@ -238,6 +238,7 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
   const [isExporting, setIsExporting] = useState(false);
   const [isIntroPlaying, setIsIntroPlaying] = useState(false);
   const [isIntroBuffering, setIsIntroBuffering] = useState(false);
+  const [showIntroControls, setShowIntroControls] = useState(true);
   const [isIntroReadyToContinue, setIsIntroReadyToContinue] = useState(false);
   const [showIntroGreeting, setShowIntroGreeting] = useState(true);
   const [wheelRotation, setWheelRotation] = useState(0);
@@ -524,12 +525,14 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
     introWasPausedByUserRef.current = false;
     shouldResumeIntroAfterBufferRef.current = false;
     setIsIntroBuffering(false);
+    setShowIntroControls(false);
 
     try {
       await introVideoRef.current.play();
       setIsIntroPlaying(true);
     } catch {
       setIsIntroPlaying(false);
+      setShowIntroControls(true);
     }
   }
 
@@ -546,6 +549,7 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
     introWasPausedByUserRef.current = true;
     shouldResumeIntroAfterBufferRef.current = false;
     setIsIntroBuffering(false);
+    setShowIntroControls(true);
     introVideoRef.current.pause();
     setIsIntroPlaying(false);
   }
@@ -558,6 +562,7 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
     shouldResumeIntroAfterBufferRef.current = true;
     setIsIntroPlaying(false);
     setIsIntroBuffering(true);
+    setShowIntroControls(true);
   }
 
   async function handleIntroCanPlay() {
@@ -574,11 +579,21 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
     try {
       await introVideoRef.current.play();
       setIsIntroPlaying(true);
+      setShowIntroControls(false);
       shouldResumeIntroAfterBufferRef.current = false;
     } catch {
       setIsIntroPlaying(false);
       setIsIntroBuffering(true);
+      setShowIntroControls(true);
     }
+  }
+
+  function handleIntroSurfaceTap() {
+    if (!isIntroPlaying) {
+      return;
+    }
+
+    setShowIntroControls((current) => !current);
   }
 
   function renderStepContent() {
@@ -604,6 +619,7 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
           <section className="story-card story-card--single story-card--video">
             <div
               className="intro-video-shell"
+              onClick={handleIntroSurfaceTap}
               style={{
                 backgroundImage: `url('${resolvedIntroPosterPath}')`,
               }}
@@ -620,19 +636,23 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
                 onPlay={() => {
                   setIsIntroPlaying(true);
                   setIsIntroBuffering(false);
+                  setShowIntroControls(false);
                 }}
                 onPlaying={() => {
                   setIsIntroPlaying(true);
                   setIsIntroBuffering(false);
+                  setShowIntroControls(false);
                   shouldResumeIntroAfterBufferRef.current = false;
                 }}
                 onPause={() => {
                   setIsIntroPlaying(false);
+                  setShowIntroControls(true);
                 }}
                 onEnded={() => {
                   setIsIntroPlaying(false);
                   setIsIntroBuffering(false);
                   setIsIntroReadyToContinue(true);
+                  setShowIntroControls(true);
                   shouldResumeIntroAfterBufferRef.current = false;
                 }}
                 onWaiting={handleIntroWaiting}
@@ -647,26 +667,32 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
                   const fallbackIntroVideoPath = resolveAssetPath(DEFAULT_INTRO_VIDEO_PATH);
                   setIsIntroPlaying(false);
                   setIsIntroBuffering(false);
+                  setShowIntroControls(true);
                   shouldResumeIntroAfterBufferRef.current = false;
                   if (resolvedIntroVideoPath !== fallbackIntroVideoPath) {
                     setResolvedIntroVideoPath(fallbackIntroVideoPath);
                   }
                 }}
               />
-              <button
-                type="button"
-                className="intro-video-play"
-                onClick={handleToggleIntroPlayback}
-                aria-label={isIntroBuffering ? 'Resume intro video' : isIntroPlaying ? 'Pause intro video' : 'Play intro video'}
-              >
-                {isIntroBuffering ? (
-                  <LoaderCircle size={22} className="intro-video-play__spinner" />
-                ) : isIntroPlaying ? (
-                  <Pause size={22} fill="currentColor" />
-                ) : (
-                  <Play size={22} fill="currentColor" />
-                )}
-              </button>
+              {(!isIntroPlaying || isIntroBuffering || showIntroControls) ? (
+                <button
+                  type="button"
+                  className="intro-video-play"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleToggleIntroPlayback();
+                  }}
+                  aria-label={isIntroBuffering ? 'Resume intro video' : isIntroPlaying ? 'Pause intro video' : 'Play intro video'}
+                >
+                  {isIntroBuffering ? (
+                    <LoaderCircle size={22} className="intro-video-play__spinner" />
+                  ) : isIntroPlaying ? (
+                    <Pause size={22} fill="currentColor" />
+                  ) : (
+                    <Play size={22} fill="currentColor" />
+                  )}
+                </button>
+              ) : null}
             </div>
           </section>
         </div>
