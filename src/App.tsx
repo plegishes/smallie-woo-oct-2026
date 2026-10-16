@@ -1,5 +1,4 @@
 import { ArrowLeft, ArrowRight, Camera, Download, Heart, LoaderCircle, Lock, Pause, Play, RotateCcw, Save, Upload } from 'lucide-react';
-import { toPng } from 'html-to-image';
 import { type CSSProperties, type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createDefaultExperienceConfig,
@@ -10,7 +9,7 @@ import {
   type ExperienceCategoryConfig,
   type ExperienceConfig,
 } from './experience-config';
-import { ReceiptImage, type ReceiptItem } from './receipt-image';
+import type { ReceiptItem } from './receipt-image';
 import type { CategoryKey, GiftOption } from './types';
 
 const ADMIN_PATH = '/studio-audio';
@@ -196,44 +195,312 @@ async function fileToDataUrl(file: File) {
   });
 }
 
-async function waitForImagesToBeReady(container: HTMLElement) {
-  const images = Array.from(container.querySelectorAll('img'));
+function formatReceiptPrice(price: number) {
+  return `EUR ${price.toFixed(2)}`;
+}
 
-  await Promise.all(
-    images.map(async (image) => {
-      if (image.complete && image.naturalWidth > 0) {
-        if (typeof image.decode === 'function') {
-          try {
-            await image.decode();
-          } catch {
-            // Ignore decode failures and fall back to the already loaded bitmap.
-          }
-        }
-        return;
-      }
+function formatReceiptBarcode(items: ReceiptItem[]) {
+  const seed = items
+    .map((item) => `${item.categoryTitle}-${item.giftName}-${item.price}`)
+    .join('|')
+    .replace(/[^a-z0-9]/gi, '')
+    .toUpperCase();
 
-      await new Promise<void>((resolve) => {
-        const finish = () => {
-          image.removeEventListener('load', finish);
-          image.removeEventListener('error', finish);
-          resolve();
-        };
+  return (seed || 'BRYANMENSAHRECEIPT').slice(0, 28);
+}
 
-        image.addEventListener('load', finish, { once: true });
-        image.addEventListener('error', finish, { once: true });
-      });
+async function loadCanvasImage(src: string) {
+  return await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.decoding = 'async';
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Could not load image: ${src}`));
+    image.src = src;
+  });
+}
 
-      if (typeof image.decode === 'function') {
-        try {
-          await image.decode();
-        } catch {
-          // Ignore decode failures and use the loaded image state.
-        }
-      }
-    }),
-  );
+function drawWrappedText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number,
+  maxLines = 2,
+) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let currentLine = '';
 
-  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  for (const word of words) {
+    const candidate = currentLine ? `${currentLine} ${word}` : word;
+    if (context.measureText(candidate).width <= maxWidth || currentLine.length === 0) {
+      currentLine = candidate;
+      continue;
+    }
+
+    lines.push(currentLine);
+    currentLine = word;
+
+    if (lines.length === maxLines - 1) {
+      break;
+    }
+  }
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  const trimmedLines = lines.slice(0, maxLines).map((line, index) => {
+    if (index < maxLines - 1 || lines.length <= maxLines) {
+      return line;
+    }
+
+    let nextLine = line;
+    while (context.measureText(`${nextLine}…`).width > maxWidth && nextLine.length > 1) {
+      nextLine = nextLine.slice(0, -1).trimEnd();
+    }
+    return `${nextLine}…`;
+  });
+
+  trimmedLines.forEach((line, index) => {
+    context.fillText(line, x, y + index * lineHeight);
+  });
+
+  return y + Math.max(trimmedLines.length - 1, 0) * lineHeight;
+}
+
+function drawReceiptBarcode(context: CanvasRenderingContext2D, value: string, x: number, y: number, height: number) {
+  let cursor = x;
+
+  value.split('').forEach((_, index) => {
+    const width = index % 3 === 0 ? 8 : index % 2 === 0 ? 4 : 6;
+    context.fillRect(cursor, y, width, height);
+    cursor += width + 3;
+  });
+}
+
+async function renderReceiptPng({
+  backgroundSrc,
+  logoSrc,
+  customerName,
+  businessName,
+  purpose,
+  items,
+}: {
+  backgroundSrc: string;
+  logoSrc?: string | null;
+  customerName: string;
+  businessName: string;
+  purpose: string;
+  items: ReceiptItem[];
+}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1280;
+  canvas.height = 1280;
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('Canvas is not available.');
+  }
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+
+  try {
+    const backgroundImage = await loadCanvasImage(backgroundSrc);
+    context.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+  } catch {
+    context.fillStyle = '#1f66ff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  const stackX = 410;
+  const stackY = 130;
+  const stackWidth = 470;
+  const stackHeight = 1020;
+
+  context.save();
+  context.translate(stackX + stackWidth / 2, stackY + stackHeight / 2);
+  context.rotate((6 * Math.PI) / 180);
+  context.fillStyle = 'rgba(255, 255, 255, 0.92)';
+  context.strokeStyle = '#111111';
+  context.lineWidth = 4;
+  context.fillRect(-stackWidth / 2, -stackHeight / 2, stackWidth, stackHeight);
+  context.strokeRect(-stackWidth / 2, -stackHeight / 2, stackWidth, stackHeight);
+  context.restore();
+
+  const receiptX = 350;
+  const receiptY = 110;
+  const receiptWidth = 595;
+  const receiptHeight = 1030;
+
+  context.fillStyle = '#fbfbfb';
+  context.strokeStyle = '#111111';
+  context.lineWidth = 4;
+  context.fillRect(receiptX, receiptY, receiptWidth, receiptHeight);
+  context.strokeRect(receiptX, receiptY, receiptWidth, receiptHeight);
+
+  context.fillStyle = '#1c1c1c';
+  context.textAlign = 'center';
+  context.font = "bold 66px Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif";
+  context.fillText('HBD SMALLIE WOO', receiptX + receiptWidth / 2, receiptY + 88);
+  context.font = "16px 'Courier New', monospace";
+  context.fillText('•••••', receiptX + receiptWidth / 2, receiptY + 116);
+
+  const now = new Date();
+  const dateLabel = now.toLocaleDateString('en-GB');
+  const timeLabel = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const barcodeValue = formatReceiptBarcode(items);
+  const total = items.reduce((sum, item) => sum + item.price, 0);
+
+  context.globalAlpha = 0.65;
+  context.font = "16px 'Courier New', monospace";
+  context.fillText(`${dateLabel}     ${timeLabel}`, receiptX + receiptWidth / 2, receiptY + 145);
+  context.globalAlpha = 1;
+
+  let cursorY = receiptY + 190;
+  const contentLeft = receiptX + 32;
+  const contentRight = receiptX + receiptWidth - 32;
+
+  if (logoSrc) {
+    try {
+      const logoImage = await loadCanvasImage(logoSrc);
+      context.save();
+      context.beginPath();
+      context.arc(contentLeft + 28, cursorY + 28, 28, 0, Math.PI * 2);
+      context.closePath();
+      context.clip();
+      context.drawImage(logoImage, contentLeft, cursorY, 56, 56);
+      context.restore();
+      context.strokeStyle = 'rgba(17, 17, 17, 0.12)';
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(contentLeft + 28, cursorY + 28, 28, 0, Math.PI * 2);
+      context.stroke();
+    } catch {
+      context.fillStyle = '#e7e7e7';
+      context.beginPath();
+      context.arc(contentLeft + 28, cursorY + 28, 28, 0, Math.PI * 2);
+      context.fill();
+    }
+  } else {
+    context.fillStyle = '#e7e7e7';
+    context.beginPath();
+    context.arc(contentLeft + 28, cursorY + 28, 28, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  context.textAlign = 'left';
+  context.fillStyle = '#1c1c1c';
+  context.font = "bold 14px 'Courier New', monospace";
+  context.fillText('Customer:', contentLeft + 70, cursorY + 18);
+  context.font = "14px 'Courier New', monospace";
+  context.fillText(customerName, contentLeft + 150, cursorY + 18);
+  context.font = "bold 14px 'Courier New', monospace";
+  context.fillText('Business:', contentLeft + 70, cursorY + 40);
+  context.font = "14px 'Courier New', monospace";
+  context.fillText(businessName, contentLeft + 150, cursorY + 40);
+
+  cursorY += 82;
+  context.font = "bold 14px 'Courier New', monospace";
+  context.fillText('Purpose:', contentLeft, cursorY);
+  context.font = "14px 'Courier New', monospace";
+  drawWrappedText(context, purpose, contentLeft + 78, cursorY, contentRight - (contentLeft + 78), 18, 2);
+
+  cursorY += 28;
+  context.strokeStyle = 'rgba(17, 17, 17, 0.18)';
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(contentLeft, cursorY);
+  context.lineTo(contentRight, cursorY);
+  context.stroke();
+
+  cursorY += 28;
+
+  items.forEach((item) => {
+    context.textAlign = 'left';
+    context.font = "bold 16px 'Courier New', monospace";
+    drawWrappedText(context, item.giftName, contentLeft, cursorY, 330, 18, 2);
+    context.globalAlpha = 0.62;
+    context.font = "12px 'Courier New', monospace";
+    context.fillText(item.categoryTitle, contentLeft, cursorY + 19);
+    context.globalAlpha = 1;
+
+    context.textAlign = 'right';
+    context.font = "bold 16px 'Courier New', monospace";
+    context.fillText(formatReceiptPrice(item.price), contentRight, cursorY + 2);
+
+    cursorY += 44;
+  });
+
+  cursorY += 4;
+  context.strokeStyle = 'rgba(17, 17, 17, 0.18)';
+  context.beginPath();
+  context.moveTo(contentLeft, cursorY);
+  context.lineTo(contentRight, cursorY);
+  context.stroke();
+
+  cursorY += 30;
+  context.textAlign = 'left';
+  context.font = "14px 'Courier New', monospace";
+  context.fillText('Items', contentLeft, cursorY);
+  context.textAlign = 'right';
+  context.fillText(String(items.length), contentRight, cursorY);
+
+  cursorY += 28;
+  context.textAlign = 'left';
+  context.font = "bold 30px 'Courier New', monospace";
+  context.fillText('Total', contentLeft, cursorY);
+  context.textAlign = 'right';
+  context.fillText(formatReceiptPrice(total), contentRight, cursorY);
+
+  cursorY += 28;
+  context.globalAlpha = 0.62;
+  context.textAlign = 'left';
+  context.font = "14px 'Courier New', monospace";
+  context.fillText('Note', contentLeft, cursorY);
+  context.textAlign = 'right';
+  context.fillText('Yenyin roff.', contentRight, cursorY);
+  context.globalAlpha = 1;
+
+  cursorY += 44;
+  context.strokeStyle = '#111111';
+  context.lineWidth = 2;
+  context.strokeRect(contentLeft, cursorY, contentRight - contentLeft, 92);
+  context.font = "14px 'Courier New', monospace";
+  context.textAlign = 'left';
+  context.fillText('Cash Out', contentLeft + 16, cursorY + 24);
+  context.textAlign = 'right';
+  context.fillText(formatReceiptPrice(total), contentRight - 16, cursorY + 24);
+  context.globalAlpha = 0.68;
+  context.textAlign = 'left';
+  context.fillText(dateLabel, contentLeft + 16, cursorY + 48);
+  context.textAlign = 'right';
+  context.fillText(timeLabel, contentRight - 16, cursorY + 48);
+  context.textAlign = 'left';
+  context.fillText('#Transaction', contentLeft + 16, cursorY + 72);
+  context.textAlign = 'right';
+  context.fillText(barcodeValue, contentRight - 16, cursorY + 72);
+  context.globalAlpha = 1;
+
+  context.textAlign = 'center';
+  context.font = "16px 'Courier New', monospace";
+  context.fillText('•••• THANK YOU ••••', receiptX + receiptWidth / 2, receiptY + receiptHeight - 88);
+  drawReceiptBarcode(context, barcodeValue, receiptX + 150, receiptY + receiptHeight - 64, 46);
+
+  context.fillStyle = '#fbfbfb';
+  const tearY = receiptY + receiptHeight;
+  const toothWidth = 18;
+  for (let x = receiptX; x <= receiptX + receiptWidth; x += toothWidth) {
+    context.beginPath();
+    context.moveTo(x, tearY);
+    context.lineTo(x + toothWidth / 2, tearY + 16);
+    context.lineTo(x + toothWidth, tearY);
+    context.closePath();
+    context.fill();
+  }
+
+  return canvas.toDataURL('image/png');
 }
 
 function ActionButton({
@@ -290,7 +557,6 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
   const shouldResumeIntroAfterBufferRef = useRef(false);
   const wheelAnimationFrameRef = useRef<number | null>(null);
   const wheelRotationRef = useRef(0);
-  const receiptRef = useRef<HTMLDivElement | null>(null);
 
   const selectedCategory = useMemo(
     () => categories.find((category) => category.key === selectedCategoryKey) ?? categories[0],
@@ -536,18 +802,16 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
   }
 
   async function exportReceiptImage() {
-    if (!receiptRef.current) {
-      return;
-    }
-
     setIsExporting(true);
 
     try {
-      await waitForImagesToBeReady(receiptRef.current);
-      const dataUrl = await toPng(receiptRef.current, {
-        cacheBust: true,
-        pixelRatio: 2.4,
-        backgroundColor: '#1f66ff',
+      const dataUrl = await renderReceiptPng({
+        backgroundSrc: pageBackgroundImage,
+        logoSrc: selfieLogoSrc,
+        customerName: CUSTOMER_NAME,
+        businessName: BUSINESS_NAME,
+        purpose: RECEIPT_PURPOSE,
+        items: receiptItems,
       });
       const anchor = document.createElement('a');
       anchor.href = dataUrl;
@@ -991,16 +1255,6 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
             <footer className="experience-footer">{renderFooterActions()}</footer>
           )}
         </section>
-      </div>
-      <div className="receipt-export-holder" aria-hidden="true">
-        <ReceiptImage
-          ref={receiptRef}
-          customerName={CUSTOMER_NAME}
-          businessName={BUSINESS_NAME}
-          purpose={RECEIPT_PURPOSE}
-          logoSrc={selfieLogoSrc}
-          items={receiptItems}
-        />
       </div>
     </div>
   );
