@@ -1,7 +1,7 @@
 import { categories as defaultCategories } from './data';
 import type { Category, CategoryKey, GiftOption } from './types';
 
-export const EXPERIENCE_CONFIG_STORAGE_KEY = 'birthday-experience-config-v2';
+export const EXPERIENCE_CONFIG_STORAGE_KEY = 'birthday-experience-config-v3';
 export const DEFAULT_INTRO_VIDEO_PATH = '/video/birthday-intro.mov';
 export const DEFAULT_INTRO_POSTER_PATH = '/images/birthday-bg.jpg';
 export const DEFAULT_CATEGORY_IMAGE_PATHS: Record<CategoryKey, string> = {

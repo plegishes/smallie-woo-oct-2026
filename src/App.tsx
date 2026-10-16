@@ -18,6 +18,7 @@ const ADMIN_PASSWORD = 'bryan-birthday';
 const CUSTOMER_NAME = 'Bryan Mensah';
 const BUSINESS_NAME = 'Araba Mansa Sagoe';
 const RECEIPT_PURPOSE = 'Yedi 31 ooo. Yenyin roff.';
+const PAGE_BACKGROUND_PATH = '/images/page-bg.jpg';
 const CATEGORY_CARD_SHADES = ['#e4efff', '#d7e7ff', '#c8dcff', '#b9d2ff'] as const;
 const WHEEL_SEGMENT_COLORS = ['#f4f8ff', '#e9f0ff', '#dde8ff', '#d0dfff', '#c3d7ff', '#b5ceff'] as const;
 const UI_SOUND_PATHS = [
@@ -90,6 +91,26 @@ function getPickedFilePath(file: File, input: HTMLInputElement) {
   return input.value || file.name;
 }
 
+function withBasePath(path: string) {
+  if (!path) {
+    return path;
+  }
+
+  if (/^(?:[a-z]+:|\/\/)/i.test(path)) {
+    return path;
+  }
+
+  const normalizedPath = path.replace(/^\/+/, '');
+  const base = import.meta.env.BASE_URL || '/';
+
+  if (base === './') {
+    return `./${normalizedPath}`;
+  }
+
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  return `${normalizedBase}${normalizedPath}`;
+}
+
 function resolveAssetPath(path: string) {
   if (/^[a-zA-Z]:\\/.test(path)) {
     return `file:///${path.replace(/\\/g, '/')}`;
@@ -99,7 +120,20 @@ function resolveAssetPath(path: string) {
     return `file:${path.replace(/\\/g, '/')}`;
   }
 
-  return path;
+  return withBasePath(path);
+}
+
+function normalizeRoutePath(path: string) {
+  const normalized = path.replace(/\/+$/, '');
+  return normalized || '/';
+}
+
+function isAdminRoute() {
+  const normalizedAdminPath = normalizeRoutePath(ADMIN_PATH);
+  const normalizedPathname = normalizeRoutePath(window.location.pathname);
+  const normalizedHash = normalizeRoutePath(window.location.hash.replace(/^#/, ''));
+
+  return normalizedPathname.endsWith(normalizedAdminPath) || normalizedHash === normalizedAdminPath;
 }
 
 function getAdjustedImagePosition(categoryKey: CategoryKey, imagePosition: string) {
@@ -199,6 +233,7 @@ function PublicExperience() {
   const [wheelRotation, setWheelRotation] = useState(0);
   const [selfieLogoSrc, setSelfieLogoSrc] = useState<string | null>(null);
   const [resolvedIntroVideoPath, setResolvedIntroVideoPath] = useState(() => resolveAssetPath(experienceConfig.introVideoPath));
+  const resolvedIntroPosterPath = useMemo(() => resolveAssetPath(experienceConfig.introPosterPath), [experienceConfig.introPosterPath]);
   const introVideoRef = useRef<HTMLVideoElement | null>(null);
   const wheelAnimationFrameRef = useRef<number | null>(null);
   const wheelRotationRef = useRef(0);
@@ -506,7 +541,7 @@ function PublicExperience() {
             <div
               className="intro-video-shell"
               style={{
-                backgroundImage: `url('${experienceConfig.introPosterPath}')`,
+                backgroundImage: `url('${resolvedIntroPosterPath}')`,
               }}
             >
               <video
@@ -515,7 +550,7 @@ function PublicExperience() {
                 src={resolvedIntroVideoPath}
                 playsInline
                 preload="metadata"
-                poster={experienceConfig.introPosterPath}
+                poster={resolvedIntroPosterPath}
                 disablePictureInPicture
                 controlsList="nodownload noplaybackrate noremoteplayback nofullscreen"
                 onPlay={() => setIsIntroPlaying(true)}
@@ -525,8 +560,9 @@ function PublicExperience() {
                   setIsIntroReadyToContinue(true);
                 }}
                 onError={() => {
-                  if (resolvedIntroVideoPath !== DEFAULT_INTRO_VIDEO_PATH) {
-                    setResolvedIntroVideoPath(DEFAULT_INTRO_VIDEO_PATH);
+                  const fallbackIntroVideoPath = resolveAssetPath(DEFAULT_INTRO_VIDEO_PATH);
+                  if (resolvedIntroVideoPath !== fallbackIntroVideoPath) {
+                    setResolvedIntroVideoPath(fallbackIntroVideoPath);
                   }
                 }}
               />
@@ -560,7 +596,7 @@ function PublicExperience() {
                   <div
                     className="category-card__media"
                     style={{
-                      backgroundImage: `url('${resolveAssetPath(category.imagePath)}'), url('${experienceConfig.introPosterPath}')`,
+                      backgroundImage: `url('${resolveAssetPath(category.imagePath)}'), url('${resolvedIntroPosterPath}')`,
                       backgroundPosition: getAdjustedImagePosition(category.key, category.imagePosition),
                     }}
                   />
@@ -1085,6 +1121,15 @@ export default function App() {
   const currentUiAudioRef = useRef<HTMLAudioElement | null>(null);
   const currentUiAudioSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const currentUiAudioGainRef = useRef<GainNode | null>(null);
+  const showAdminStudio = isAdminRoute();
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--page-background-image', `url("${resolveAssetPath(PAGE_BACKGROUND_PATH)}")`);
+
+    return () => {
+      document.documentElement.style.removeProperty('--page-background-image');
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1117,7 +1162,7 @@ export default function App() {
     currentUiAudioSourceRef.current?.disconnect();
     currentUiAudioGainRef.current?.disconnect();
 
-    const nextSoundPath = UI_SOUND_PATHS[Math.floor(Math.random() * UI_SOUND_PATHS.length)];
+    const nextSoundPath = resolveAssetPath(UI_SOUND_PATHS[Math.floor(Math.random() * UI_SOUND_PATHS.length)]);
     const nextAudio = new Audio(nextSoundPath);
     const nextSource = audioContextRef.current.createMediaElementSource(nextAudio);
     const nextGain = audioContextRef.current.createGain();
@@ -1168,7 +1213,7 @@ export default function App() {
 
   return (
     <div onClickCapture={handleButtonClickCapture}>
-      {window.location.pathname === ADMIN_PATH ? <AdminStudio /> : <PublicExperience />}
+      {showAdminStudio ? <AdminStudio /> : <PublicExperience />}
     </div>
   );
 }

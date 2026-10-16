@@ -88,7 +88,7 @@ export const categories: Category[] = [
     gradient: 'linear-gradient(135deg, rgba(255, 216, 77, 0.95), rgba(255, 120, 64, 0.85))',
     gifts: [
       { name: 'Perfume & Skincare', price: 100 },
-      { name: 'Orsay Winter Jacket', price: 56 },
+      { name: 'Any clothing item(s)', price: 60 },
       { name: 'Puma Sneakers', price: 45 },
       { name: 'Deutsche Bahn Subscription', price: 63 },
       { name: '50% of Your Kente', price: 100 },
