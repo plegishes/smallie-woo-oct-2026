@@ -196,6 +196,46 @@ async function fileToDataUrl(file: File) {
   });
 }
 
+async function waitForImagesToBeReady(container: HTMLElement) {
+  const images = Array.from(container.querySelectorAll('img'));
+
+  await Promise.all(
+    images.map(async (image) => {
+      if (image.complete && image.naturalWidth > 0) {
+        if (typeof image.decode === 'function') {
+          try {
+            await image.decode();
+          } catch {
+            // Ignore decode failures and fall back to the already loaded bitmap.
+          }
+        }
+        return;
+      }
+
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          image.removeEventListener('load', finish);
+          image.removeEventListener('error', finish);
+          resolve();
+        };
+
+        image.addEventListener('load', finish, { once: true });
+        image.addEventListener('error', finish, { once: true });
+      });
+
+      if (typeof image.decode === 'function') {
+        try {
+          await image.decode();
+        } catch {
+          // Ignore decode failures and use the loaded image state.
+        }
+      }
+    }),
+  );
+
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+
 function ActionButton({
   label,
   detail,
@@ -503,6 +543,7 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
     setIsExporting(true);
 
     try {
+      await waitForImagesToBeReady(receiptRef.current);
       const dataUrl = await toPng(receiptRef.current, {
         cacheBust: true,
         pixelRatio: 2.4,
