@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Camera, Download, Heart, Lock, Play, RotateCcw, Save, Upload } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, Download, Heart, LoaderCircle, Lock, Pause, Play, RotateCcw, Save, Upload } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { type CSSProperties, type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -237,6 +237,7 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
   const [isSpinning, setIsSpinning] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isIntroPlaying, setIsIntroPlaying] = useState(false);
+  const [isIntroBuffering, setIsIntroBuffering] = useState(false);
   const [isIntroReadyToContinue, setIsIntroReadyToContinue] = useState(false);
   const [showIntroGreeting, setShowIntroGreeting] = useState(true);
   const [wheelRotation, setWheelRotation] = useState(0);
@@ -244,6 +245,8 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
   const [resolvedIntroVideoPath, setResolvedIntroVideoPath] = useState(() => resolveAssetPath(experienceConfig.introVideoPath));
   const resolvedIntroPosterPath = useMemo(() => resolveAssetPath(experienceConfig.introPosterPath), [experienceConfig.introPosterPath]);
   const introVideoRef = useRef<HTMLVideoElement | null>(null);
+  const introWasPausedByUserRef = useRef(false);
+  const shouldResumeIntroAfterBufferRef = useRef(false);
   const wheelAnimationFrameRef = useRef<number | null>(null);
   const wheelRotationRef = useRef(0);
   const receiptRef = useRef<HTMLDivElement | null>(null);
@@ -518,11 +521,63 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
       return;
     }
 
+    introWasPausedByUserRef.current = false;
+    shouldResumeIntroAfterBufferRef.current = false;
+    setIsIntroBuffering(false);
+
     try {
       await introVideoRef.current.play();
       setIsIntroPlaying(true);
     } catch {
       setIsIntroPlaying(false);
+    }
+  }
+
+  async function handleToggleIntroPlayback() {
+    if (!introVideoRef.current) {
+      return;
+    }
+
+    if (isIntroBuffering || introVideoRef.current.paused || introVideoRef.current.ended) {
+      await handlePlayIntro();
+      return;
+    }
+
+    introWasPausedByUserRef.current = true;
+    shouldResumeIntroAfterBufferRef.current = false;
+    setIsIntroBuffering(false);
+    introVideoRef.current.pause();
+    setIsIntroPlaying(false);
+  }
+
+  function handleIntroWaiting() {
+    if (!introVideoRef.current || introVideoRef.current.paused || introVideoRef.current.ended) {
+      return;
+    }
+
+    shouldResumeIntroAfterBufferRef.current = true;
+    setIsIntroPlaying(false);
+    setIsIntroBuffering(true);
+  }
+
+  async function handleIntroCanPlay() {
+    if (!isIntroBuffering) {
+      return;
+    }
+
+    setIsIntroBuffering(false);
+
+    if (!introVideoRef.current || introWasPausedByUserRef.current || !shouldResumeIntroAfterBufferRef.current) {
+      return;
+    }
+
+    try {
+      await introVideoRef.current.play();
+      setIsIntroPlaying(true);
+      shouldResumeIntroAfterBufferRef.current = false;
+    } catch {
+      setIsIntroPlaying(false);
+      setIsIntroBuffering(true);
     }
   }
 
@@ -562,24 +617,56 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
                 poster={resolvedIntroPosterPath}
                 disablePictureInPicture
                 controlsList="nodownload noplaybackrate noremoteplayback nofullscreen"
-                onPlay={() => setIsIntroPlaying(true)}
-                onPause={() => setIsIntroPlaying(false)}
+                onPlay={() => {
+                  setIsIntroPlaying(true);
+                  setIsIntroBuffering(false);
+                }}
+                onPlaying={() => {
+                  setIsIntroPlaying(true);
+                  setIsIntroBuffering(false);
+                  shouldResumeIntroAfterBufferRef.current = false;
+                }}
+                onPause={() => {
+                  setIsIntroPlaying(false);
+                }}
                 onEnded={() => {
                   setIsIntroPlaying(false);
+                  setIsIntroBuffering(false);
                   setIsIntroReadyToContinue(true);
+                  shouldResumeIntroAfterBufferRef.current = false;
+                }}
+                onWaiting={handleIntroWaiting}
+                onStalled={handleIntroWaiting}
+                onCanPlay={() => {
+                  void handleIntroCanPlay();
+                }}
+                onCanPlayThrough={() => {
+                  void handleIntroCanPlay();
                 }}
                 onError={() => {
                   const fallbackIntroVideoPath = resolveAssetPath(DEFAULT_INTRO_VIDEO_PATH);
+                  setIsIntroPlaying(false);
+                  setIsIntroBuffering(false);
+                  shouldResumeIntroAfterBufferRef.current = false;
                   if (resolvedIntroVideoPath !== fallbackIntroVideoPath) {
                     setResolvedIntroVideoPath(fallbackIntroVideoPath);
                   }
                 }}
               />
-              {!isIntroPlaying ? (
-                <button type="button" className="intro-video-play" onClick={handlePlayIntro} aria-label="Play intro video">
+              <button
+                type="button"
+                className="intro-video-play"
+                onClick={handleToggleIntroPlayback}
+                aria-label={isIntroBuffering ? 'Resume intro video' : isIntroPlaying ? 'Pause intro video' : 'Play intro video'}
+              >
+                {isIntroBuffering ? (
+                  <LoaderCircle size={22} className="intro-video-play__spinner" />
+                ) : isIntroPlaying ? (
+                  <Pause size={22} fill="currentColor" />
+                ) : (
                   <Play size={22} fill="currentColor" />
-                </button>
-              ) : null}
+                )}
+              </button>
             </div>
           </section>
         </div>
