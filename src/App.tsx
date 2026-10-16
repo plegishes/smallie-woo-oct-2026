@@ -34,8 +34,17 @@ const UI_SOUND_PATHS = [
   '/audio/ui/wofa-nono-trim-p2.mp3',
   '/audio/ui/you-see-your-life-trim.mp3',
 ] as const;
+const AUDIO_INDICATOR_AVATAR_PATHS = [
+  '/images/pill-avatars/pill-avatar-1.jpg',
+  '/images/pill-avatars/pill-avatar-2.jpg',
+  '/images/pill-avatars/pill-avatar-3.jpg',
+  '/images/pill-avatars/pill-avatar-4.jpg',
+  '/images/pill-avatars/pill-avatar-5.jpg',
+] as const;
+const AUDIO_INDICATOR_CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
 
 type ExperienceStep = 'memo' | 'categories' | 'wheel' | 'selfie' | 'cashout';
+type AudioIndicatorCorner = (typeof AUDIO_INDICATOR_CORNERS)[number];
 
 function polarToCartesian(centerX: number, centerY: number, radius: number, angleDegrees: number) {
   const angleRadians = ((angleDegrees - 90) * Math.PI) / 180;
@@ -571,14 +580,7 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
   const selectedGiftIndex = selectedGift
     ? selectedCategory.gifts.findIndex((gift) => gift.name === selectedGift.name && gift.price === selectedGift.price)
     : -1;
-  const activeWheelIndex =
-    wheelGiftCount === 0
-      ? 0
-      : isSpinning
-        ? getActiveIndexFromRotation(wheelRotation, wheelSlice, wheelGiftCount)
-        : selectedGiftIndex >= 0
-          ? selectedGiftIndex
-          : getActiveIndexFromRotation(wheelRotation, wheelSlice, wheelGiftCount);
+  const activeWheelIndex = wheelGiftCount === 0 ? 0 : getActiveIndexFromRotation(wheelRotation, wheelSlice, wheelGiftCount);
   const centeredWheelItems =
     wheelGiftCount === 0
       ? []
@@ -701,7 +703,10 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
     }
 
     const gifts = selectedCategory.gifts;
-    const randomIndex = Math.floor(Math.random() * gifts.length);
+    const availableIndices = gifts
+      .map((_, index) => index)
+      .filter((index) => !(selectedCategorySpinAttempts > 0 && selectedGiftIndex >= 0 && gifts.length > 1 && index === selectedGiftIndex));
+    const randomIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)] ?? 0;
     const segmentCenterOffset = (randomIndex + 0.5) * wheelSlice;
     const startRotation = wheelRotationRef.current;
     const targetRotation = startRotation + 1800 + 360 - segmentCenterOffset;
@@ -728,9 +733,10 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
       wheelAnimationFrameRef.current = null;
       wheelRotationRef.current = targetRotation;
       setWheelRotation(targetRotation);
+      const landedIndex = getActiveIndexFromRotation(targetRotation, wheelSlice, gifts.length);
       setSelectedGifts((current) => ({
         ...current,
-        [selectedCategoryKey]: gifts[randomIndex],
+        [selectedCategoryKey]: gifts[landedIndex],
       }));
       setSpinAttempts((current) => ({
         ...current,
@@ -1155,6 +1161,17 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
             <h1>Cash Out</h1>
             <p>Download your receipt and send it to Bryan</p>
           </div>
+          <div className="cashout-floating-note" aria-hidden="true">
+            <div className="cashout-floating-note__dots">
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="cashout-floating-note__copy">
+              <strong>Ala Content Creator!</strong>
+              <p>After your gifts are funded you’ll have to record videos of you getting them.</p>
+            </div>
+          </div>
           <div className="content-actions">
             <ActionButton
               label="Cash Out My Gifts"
@@ -1176,7 +1193,7 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
         <>
           <ActionButton label="Back" icon={<ArrowLeft size={16} />} tone="ghost" onClick={handleBack} disabled />
           <ActionButton
-            label="Continue"
+            label={!showIntroGreeting && !isIntroReadyToContinue ? 'Watch Till End' : 'Continue'}
             icon={<ArrowRight size={16} />}
             tone="primary"
             onClick={handleStartCategories}
@@ -1544,8 +1561,19 @@ export default function App() {
   const currentUiAudioRef = useRef<HTMLAudioElement | null>(null);
   const currentUiAudioSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const currentUiAudioGainRef = useRef<GainNode | null>(null);
+  const currentUiAudioCleanupRef = useRef<(() => void) | null>(null);
+  const remainingUiSoundPathsRef = useRef<string[]>([]);
+  const audioIndicatorTimeoutRef = useRef<number | null>(null);
+  const [audioIndicatorCorner, setAudioIndicatorCorner] = useState<AudioIndicatorCorner>('top-right');
+  const [audioIndicatorAvatarSrc, setAudioIndicatorAvatarSrc] = useState<string | null>(null);
+  const [isAudioIndicatorVisible, setIsAudioIndicatorVisible] = useState(false);
+  const [isAudioIndicatorLeaving, setIsAudioIndicatorLeaving] = useState(false);
   const showAdminStudio = isAdminRoute();
   const pageBackgroundImage = resolveAssetPath(PAGE_BACKGROUND_PATH);
+  const audioIndicatorImagePool = useMemo(
+    () => AUDIO_INDICATOR_AVATAR_PATHS.map((path) => resolveAssetPath(path)),
+    [],
+  );
 
   useEffect(() => {
     document.documentElement.style.setProperty('--page-background-image', `url("${pageBackgroundImage}")`);
@@ -1557,6 +1585,10 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      if (audioIndicatorTimeoutRef.current !== null) {
+        window.clearTimeout(audioIndicatorTimeoutRef.current);
+      }
+      currentUiAudioCleanupRef.current?.();
       currentUiAudioRef.current?.pause();
       currentUiAudioSourceRef.current?.disconnect();
       currentUiAudioGainRef.current?.disconnect();
@@ -1565,6 +1597,43 @@ export default function App() {
       currentUiAudioGainRef.current = null;
     };
   }, []);
+
+  function clearAudioIndicatorTimeout() {
+    if (audioIndicatorTimeoutRef.current !== null) {
+      window.clearTimeout(audioIndicatorTimeoutRef.current);
+      audioIndicatorTimeoutRef.current = null;
+    }
+  }
+
+  function showAudioIndicator() {
+    clearAudioIndicatorTimeout();
+    setAudioIndicatorCorner(AUDIO_INDICATOR_CORNERS[Math.floor(Math.random() * AUDIO_INDICATOR_CORNERS.length)] ?? 'top-right');
+    setAudioIndicatorAvatarSrc(
+      audioIndicatorImagePool[Math.floor(Math.random() * audioIndicatorImagePool.length)] ?? resolveAssetPath('/images/birthday-bg.jpg'),
+    );
+    setIsAudioIndicatorLeaving(false);
+    setIsAudioIndicatorVisible(true);
+  }
+
+  function hideAudioIndicator() {
+    clearAudioIndicatorTimeout();
+    setIsAudioIndicatorLeaving(true);
+    audioIndicatorTimeoutRef.current = window.setTimeout(() => {
+      setIsAudioIndicatorVisible(false);
+      setIsAudioIndicatorLeaving(false);
+      audioIndicatorTimeoutRef.current = null;
+    }, 260);
+  }
+
+  function getNextUiSoundPath() {
+    if (remainingUiSoundPathsRef.current.length === 0) {
+      remainingUiSoundPathsRef.current = [...UI_SOUND_PATHS];
+    }
+
+    const nextIndex = Math.floor(Math.random() * remainingUiSoundPathsRef.current.length);
+    const [nextSoundPath] = remainingUiSoundPathsRef.current.splice(nextIndex, 1);
+    return resolveAssetPath(nextSoundPath ?? UI_SOUND_PATHS[0]);
+  }
 
   async function playRandomUiSound() {
     const AudioContextClass =
@@ -1582,11 +1651,13 @@ export default function App() {
       await audioContextRef.current.resume();
     }
 
+    currentUiAudioCleanupRef.current?.();
+    currentUiAudioCleanupRef.current = null;
     currentUiAudioRef.current?.pause();
     currentUiAudioSourceRef.current?.disconnect();
     currentUiAudioGainRef.current?.disconnect();
 
-    const nextSoundPath = resolveAssetPath(UI_SOUND_PATHS[Math.floor(Math.random() * UI_SOUND_PATHS.length)]);
+    const nextSoundPath = getNextUiSoundPath();
     const nextAudio = new Audio(nextSoundPath);
     const nextSource = audioContextRef.current.createMediaElementSource(nextAudio);
     const nextGain = audioContextRef.current.createGain();
@@ -1594,34 +1665,38 @@ export default function App() {
     nextSource.connect(nextGain);
     nextGain.connect(audioContextRef.current.destination);
 
-    nextAudio.addEventListener(
-      'ended',
-      () => {
-        nextSource.disconnect();
-        nextGain.disconnect();
-        if (currentUiAudioRef.current === nextAudio) {
-          currentUiAudioRef.current = null;
-          currentUiAudioSourceRef.current = null;
-          currentUiAudioGainRef.current = null;
-        }
-      },
-      { once: true },
-    );
-
-    currentUiAudioRef.current = nextAudio;
-    currentUiAudioSourceRef.current = nextSource;
-    currentUiAudioGainRef.current = nextGain;
-
-    try {
-      await nextAudio.play();
-    } catch {
+    const cleanupAudio = () => {
+      nextAudio.removeEventListener('ended', cleanupAudio);
+      nextAudio.removeEventListener('error', cleanupAudio);
       nextSource.disconnect();
       nextGain.disconnect();
+
       if (currentUiAudioRef.current === nextAudio) {
         currentUiAudioRef.current = null;
         currentUiAudioSourceRef.current = null;
         currentUiAudioGainRef.current = null;
       }
+
+      if (currentUiAudioCleanupRef.current === cleanupAudio) {
+        currentUiAudioCleanupRef.current = null;
+      }
+
+      hideAudioIndicator();
+    };
+
+    nextAudio.addEventListener('ended', cleanupAudio, { once: true });
+    nextAudio.addEventListener('error', cleanupAudio, { once: true });
+
+    currentUiAudioRef.current = nextAudio;
+    currentUiAudioSourceRef.current = nextSource;
+    currentUiAudioGainRef.current = nextGain;
+    currentUiAudioCleanupRef.current = cleanupAudio;
+
+    try {
+      showAudioIndicator();
+      await nextAudio.play();
+    } catch {
+      cleanupAudio();
     }
   }
 
@@ -1638,6 +1713,25 @@ export default function App() {
   return (
     <div onClickCapture={handleButtonClickCapture}>
       {showAdminStudio ? <AdminStudio /> : <PublicExperience pageBackgroundImage={pageBackgroundImage} />}
+      {isAudioIndicatorVisible || isAudioIndicatorLeaving ? (
+        <div
+          className={`audio-activity-pill audio-activity-pill--${audioIndicatorCorner} ${
+            isAudioIndicatorLeaving ? 'is-leaving' : 'is-visible'
+          }`.trim()}
+          aria-hidden="true"
+        >
+          {audioIndicatorAvatarSrc ? (
+            <span className="audio-activity-pill__avatar">
+              <img src={audioIndicatorAvatarSrc} alt="" />
+            </span>
+          ) : null}
+          <span className="audio-activity-pill__bars">
+            <span />
+            <span />
+            <span />
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }
