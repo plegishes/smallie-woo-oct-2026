@@ -101,14 +101,23 @@ function withBasePath(path: string) {
   }
 
   const normalizedPath = path.replace(/^\/+/, '');
-  const base = import.meta.env.BASE_URL || '/';
-
-  if (base === './') {
-    return `./${normalizedPath}`;
+  if (typeof window === 'undefined') {
+    return `/${normalizedPath}`;
   }
 
-  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
-  return `${normalizedBase}${normalizedPath}`;
+  const normalizedAdminPath = normalizeRoutePath(ADMIN_PATH);
+  const normalizedLocationPath = normalizeRoutePath(window.location.pathname);
+  let sitePath = window.location.pathname;
+
+  if (normalizedLocationPath.endsWith(normalizedAdminPath)) {
+    sitePath = window.location.pathname.slice(0, window.location.pathname.length - normalizedAdminPath.length) || '/';
+  }
+
+  if (!sitePath.endsWith('/')) {
+    sitePath = `${sitePath}/`;
+  }
+
+  return new URL(normalizedPath, `${window.location.origin}${sitePath}`).toString();
 }
 
 function resolveAssetPath(path: string) {
@@ -218,7 +227,7 @@ function ActionButton({
   );
 }
 
-function PublicExperience() {
+function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string }) {
   const [experienceConfig] = useState<ExperienceConfig>(() => loadExperienceConfig());
   const categories = experienceConfig.categories;
   const [currentStep, setCurrentStep] = useState<ExperienceStep>('memo');
@@ -816,6 +825,13 @@ function PublicExperience() {
           className={`experience-shell experience-shell--${currentStep} ${
             currentStep === 'memo' && showIntroGreeting ? 'experience-shell--intro-greeting' : ''
           }`.trim()}
+          style={
+            currentStep === 'memo' && showIntroGreeting
+              ? {
+                  background: `url("${pageBackgroundImage}") center center / cover no-repeat`,
+                }
+              : undefined
+          }
         >
           <div className="experience-content">{renderStepContent()}</div>
           {currentStep === 'cashout' || (currentStep === 'memo' && showIntroGreeting) ? null : (
@@ -1122,14 +1138,15 @@ export default function App() {
   const currentUiAudioSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const currentUiAudioGainRef = useRef<GainNode | null>(null);
   const showAdminStudio = isAdminRoute();
+  const pageBackgroundImage = resolveAssetPath(PAGE_BACKGROUND_PATH);
 
   useEffect(() => {
-    document.documentElement.style.setProperty('--page-background-image', `url("${resolveAssetPath(PAGE_BACKGROUND_PATH)}")`);
+    document.documentElement.style.setProperty('--page-background-image', `url("${pageBackgroundImage}")`);
 
     return () => {
       document.documentElement.style.removeProperty('--page-background-image');
     };
-  }, []);
+  }, [pageBackgroundImage]);
 
   useEffect(() => {
     return () => {
@@ -1213,7 +1230,7 @@ export default function App() {
 
   return (
     <div onClickCapture={handleButtonClickCapture}>
-      {showAdminStudio ? <AdminStudio /> : <PublicExperience />}
+      {showAdminStudio ? <AdminStudio /> : <PublicExperience pageBackgroundImage={pageBackgroundImage} />}
     </div>
   );
 }
