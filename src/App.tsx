@@ -834,8 +834,8 @@ function PublicExperience({ pageBackgroundImage }: { pageBackgroundImage: string
               </div>
               <label className="upload-trigger">
                 <Upload size={16} />
-                <span>{selfieLogoSrc ? 'Choose another selfie' : 'Take or upload selfie'}</span>
-                <input type="file" accept="image/*" capture="user" onChange={handleSelfieChange} />
+                <span>{selfieLogoSrc ? 'Choose another image' : 'Upload image'}</span>
+                <input type="file" accept="image/*" onChange={handleSelfieChange} />
               </label>
             </div>
           </section>
